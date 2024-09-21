@@ -1,7 +1,7 @@
 import { Telegraf } from "telegraf";
 import cron from 'node-cron';
 
-const API_KEY_BOT = 'key';
+const API_KEY_BOT = '';
 
 const bot = new Telegraf(API_KEY_BOT);
 
@@ -44,7 +44,7 @@ bot.start(async (ctx) => {
     );
     activeChats[ctx.chat.id] = true;
 
-    cron.schedule('0 18 * * *', async () => {
+    cron.schedule('0 18 * * *', async () => {       
         const currentDate = new Date();
         currentDate.setDate(currentDate.getDate() + 3);
         const todayDate = currentDate.getDate();
@@ -53,8 +53,8 @@ bot.start(async (ctx) => {
 
         const topic = await ctx.createForumTopic(`${ruDays[todayDay]} ${todayDate} ${ruMonths[todayMonth]}`);
 
-        createEmptySchedule(topic.message_thread_id);
-        const schedule = getSchedule(threads[topic.message_thread_id]);
+        createEmptySchedule(topic.message_thread_id, ctx.chat.id);
+        const schedule = getSchedule(threads[`${topic.message_thread_id}_${ctx.chat.id}`]);
         bot.telegram.sendMessage(ctx.chat.id, schedule, { message_thread_id: topic.message_thread_id });
     });
 });
@@ -62,14 +62,14 @@ bot.start(async (ctx) => {
 const threads = {};
 const activeChats = {};
 
-function createEmptySchedule(threadId) {
+function createEmptySchedule(threadId, chatId) {
     const emptySchedule = {};
 
     for (let hour = 6; hour < 24; hour++) {
         emptySchedule[hour] = null;
     }
 
-    threads[threadId] = emptySchedule;
+    threads[`${threadId}_${chatId}`] = emptySchedule;    
 }
 
 function getSchedule(threadObject) {
@@ -99,24 +99,25 @@ bot.command('book', async (ctx) => {
     if (ctx.message.message_thread_id) {
         const timeArray = ctx.payload.split(',');
         let isTimeBooked = false;
+        const threadKey = `${ctx.message.message_thread_id}_${ctx.chat.id}`;
 
         for (const time of timeArray) {
             let chosenTime = null;
             try {
-                chosenTime = threads[ctx.message.message_thread_id][time];
+                chosenTime = threads[threadKey][time];
             } catch (e) {
                 ctx.reply('К сожалению, бот был отключен на некоторое время. Дальнейшая запись проводится вручную.');
                 return;
             }
 
             const dayIndex = ruDays.indexOf(ctx.message.reply_to_message.forum_topic_created.name.split(' ')[0]);
-            if (!isUserHasAvailableHours(threads[ctx.message.message_thread_id], ctx.from.id, dayIndex)) {
+            if (!isUserHasAvailableHours(threads[threadKey], ctx.from.id, dayIndex)) {
                 ctx.reply('Вы пытаетесь превысить ограничение по времени. Напоминаю, в будние дни 2ч, в выходные 1ч.');
                 break;
             }
 
             if (chosenTime === null) {
-                threads[ctx.message.message_thread_id][time] = `${ctx.from.first_name} id:${ctx.from.id}`;
+                threads[threadKey][time] = `${ctx.from.first_name} id:${ctx.from.id}`;
                 isTimeBooked = true;
                 continue;
             }
@@ -133,7 +134,7 @@ bot.command('book', async (ctx) => {
         }
 
         if (isTimeBooked) {
-            const schedule = getSchedule(threads[ctx.message.message_thread_id]);
+            const schedule = getSchedule(threads[threadKey]);
             ctx.reply(schedule);
         }
     } else {
@@ -145,17 +146,18 @@ bot.command('unbook', async (ctx) => {
     if (ctx.message.message_thread_id) {
         const timeArray = ctx.payload.split(',');
         let isTimeUnBooked = false;
+        const threadKey = `${ctx.message.message_thread_id}_${ctx.chat.id}`;
 
         for (const time of timeArray) {
             let chosenTime = null;
             try {
-                chosenTime = threads[ctx.message.message_thread_id][time];
+                chosenTime = threads[threadKey][time];
             } catch (e) {
                 ctx.reply('К сожалению, бот был отключен на некоторое время. Дальнейшая запись проводится вручную.');
                 return;
             }
 
-            const bookTimeValue = threads[ctx.message.message_thread_id][time];
+            const bookTimeValue = threads[threadKey][time];
             if (bookTimeValue === null) {
                 ctx.reply(`${time}:00 - это время и так свободно, смело записывайся :)`);
                 continue;
@@ -172,12 +174,12 @@ bot.command('unbook', async (ctx) => {
                 continue;
             }
 
-            threads[ctx.message.message_thread_id][time] = null;
+            threads[threadKey][time] = null;
             isTimeUnBooked = true;
         }
 
         if (isTimeUnBooked) {
-            const schedule = getSchedule(threads[ctx.message.message_thread_id]);
+            const schedule = getSchedule(threads[threadKey]);
             ctx.reply(schedule);
         }
     } else {
